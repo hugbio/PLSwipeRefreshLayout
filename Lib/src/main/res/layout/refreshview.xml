@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="105dp">
+
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <ImageView
+            android:id="@+id/pb_bg"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="fitXY"
+            android:src="@drawable/refresh_bg"/>
+
+        <ImageView
+            android:id="@+id/ivPullArrow"
+            android:layout_width="37dp"
+            android:layout_height="37dp"
+            android:layout_marginLeft="65dp"
+            android:layout_marginTop="6dp"
+            android:contentDescription="@string/app_name"
+            android:src="@drawable/all_icon_refresh_action"
+            android:visibility="gone"/>
+
+        <ProgressBar
+            android:id="@+id/pbRefresh"
+            android:layout_width="37dp"
+            android:layout_height="37dp"
+            android:layout_marginLeft="65dp"
+            android:layout_marginTop="6dp"
+            android:indeterminate="true"
+            android:indeterminateDrawable="@drawable/pull_to_refresh_progress" />
+    </RelativeLayout>
+</LinearLayout>

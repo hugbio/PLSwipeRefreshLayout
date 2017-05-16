@@ -32,29 +32,11 @@ import android.view.animation.Animation.AnimationListener;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.Transformation;
 import android.widget.AbsListView;
+import android.widget.FrameLayout;
+import android.widget.RelativeLayout;
 
-/**
- * The SwipeRefreshLayout should be used whenever the user can refresh the
- * contents of a view via a vertical swipe gesture. The activity that
- * instantiates this view should add an OnRefreshListener to be notified
- * whenever the swipe to refresh gesture is completed. The SwipeRefreshLayout
- * will notify the listener each and every time the gesture is completed again;
- * the listener is responsible for correctly determining when to actually
- * initiate a refresh of its content. If the listener determines there should
- * not be a refresh, it must call setRefreshing(false) to cancel any visual
- * indication of a refresh. If an activity wishes to show just the progress
- * animation, it should call setRefreshing(true). To disable the gesture and
- * progress animation, call setEnabled(false) on the view.
- * <p>
- * <p>
- * This layout should be made the parent of the view that will be refreshed as a
- * result of the gesture and can only support one direct child. This view will
- * also be made the target of the gesture and will be forced to match both the
- * width and the height supplied in this layout. The SwipeRefreshLayout does not
- * provide accessibility events; instead, a menu item must be provided to allow
- * refresh of the content wherever this gesture is used.
- * </p>
- */
+import static android.R.attr.width;
+
 public class PLSwipeRefreshLayout extends ViewGroup {
     private static final String LOG_TAG = PLSwipeRefreshLayout.class
             .getSimpleName();
@@ -69,8 +51,6 @@ public class PLSwipeRefreshLayout extends ViewGroup {
     private int mOriginalOffsetTop;  //内容控件的初始位置
     private OnRefreshListener mListener;
     private int mFrom;  //动画用到的开始值
-    private boolean mRefreshing = false;  //标记是否正在刷新
-    private boolean mLoading = false;  //标记是否正在加载
     private int mTouchSlop;  //手势滑动的最小有效值
     private float mDistanceToTriggerSync = -1;  //松开手指可以刷新的最低滑动距离
     private int mMediumAnimationDuration;
@@ -89,14 +69,18 @@ public class PLSwipeRefreshLayout extends ViewGroup {
     private static final int[] LAYOUT_ATTRS = new int[]{android.R.attr.enabled};
 
     private View mHeaderView;   //头部控件，后面下拉刷新的头部动画可以通过设置自定义的Drawable来实现
-    private int mHeaderHeight;
+    private int mHeaderStartPosition;
+    private PLHeaderView plHeaderView;
 
     //底部View还没实现。可以参照头部View来实现
+    private View mFooterView;
+    private int mFooterHeight = 200;
 
     private STATUS mStatus = STATUS.NORMAL;
     private boolean mDisable; // 用来控制控件是否允许滚动
+    private int mHeaderHeight;
 
-    private enum STATUS {
+    public enum STATUS {
         NORMAL,   //默认状态
         LOOSENREFRESH,  //可以松开刷新状态
         LOOSENLOAD,   //可以松开加载状态
@@ -118,30 +102,30 @@ public class PLSwipeRefreshLayout extends ViewGroup {
             int offset = targetTop - mTarget.getTop();
             final int currentTop = mTarget.getTop();
 
-            if (offset + currentTop < -200) {  //这里200需要修改，应改成底部View的高度（底部View还没实现。可以参照头部View来实现）
-                offset = -200 - currentTop;
+            if (offset + currentTop < -mFooterHeight) {
+                offset = -mFooterHeight - currentTop;
             }
             setTargetOffsetTopAndBottom(offset);
         }
     };
 
-    private final Animation mAnimateToHeaderPosition = new Animation() {
-        @Override
-        public void applyTransformation(float interpolatedTime, Transformation t) {
-            int targetTop = 0;
-            if (mFrom != mHeaderHeight) {
-                targetTop = (mFrom + (int) ((mHeaderHeight - mFrom) * interpolatedTime));
-            }
-
-            int offset = targetTop - mTarget.getTop();
-            final int currentTop = mTarget.getTop();
-
-            if (offset + currentTop < 0) {
-                offset = 0 - currentTop;
-            }
-            setTargetOffsetTopAndBottom(offset);
-        }
-    };
+//    private final Animation mAnimateToHeaderPosition = new Animation() {
+//        @Override
+//        public void applyTransformation(float interpolatedTime, Transformation t) {
+//            int targetTop = 0;
+//            if (mFrom != mHeaderStartPosition) {
+//                targetTop = (mFrom + (int) ((mHeaderStartPosition - mFrom) * interpolatedTime));
+//            }
+//
+//            int offset = targetTop - mTarget.getTop();
+//            final int currentTop = mTarget.getTop();
+//
+//            if (offset + currentTop < 0) {
+//                offset = 0 - currentTop;
+//            }
+//            setTargetOffsetTopAndBottom(offset);
+//        }
+//    };
 
     private final AnimationListener mReturnToStartPositionListener = new BaseAnimationListener() {
         @Override
@@ -149,7 +133,7 @@ public class PLSwipeRefreshLayout extends ViewGroup {
             // Once the target content has returned to its start position, reset
             // the target offset to 0
             mCurrentTargetOffsetTop = 0;
-            mStatus = STATUS.NORMAL;
+//            setStatus(STATUS.NORMAL);
             mDisable = false;
         }
     };
@@ -159,8 +143,8 @@ public class PLSwipeRefreshLayout extends ViewGroup {
         public void onAnimationEnd(Animation animation) {
             // Once the target content has returned to its start position, reset
             // the target offset to 0
-            mCurrentTargetOffsetTop = mHeaderHeight;
-            mStatus = STATUS.REFRESHING;
+            mCurrentTargetOffsetTop = mHeaderStartPosition;
+            setStatus(STATUS.REFRESHING);
         }
     };
 
@@ -173,14 +157,14 @@ public class PLSwipeRefreshLayout extends ViewGroup {
         }
     };
 
-    private final Runnable mReturnToHeaderPosition = new Runnable() {
-        @Override
-        public void run() {
-            mReturningToStart = true;
-            animateOffsetToHeaderPosition(mCurrentTargetOffsetTop
-                    + getPaddingTop(), mReturnToHeaderPositionListener);
-        }
-    };
+//    private final Runnable mReturnToHeaderPosition = new Runnable() {
+//        @Override
+//        public void run() {
+//            mReturningToStart = true;
+//            animateOffsetToHeaderPosition(mCurrentTargetOffsetTop
+//                    + getPaddingTop(), mReturnToHeaderPositionListener);
+//        }
+//    };
 
     // Cancel the refresh gesture and animate everything back to its original
     // state.
@@ -223,6 +207,25 @@ public class PLSwipeRefreshLayout extends ViewGroup {
                 .obtainStyledAttributes(attrs, LAYOUT_ATTRS);
         setEnabled(a.getBoolean(0, true));
         a.recycle();
+        plHeaderView = new NormalHeaderView();
+    }
+
+
+    private void createHeaderView(int widthMeasureSpec, int heightMeasureSpec) {
+        if (mHeaderView != null) {
+            removeView(mHeaderView);
+        }
+        mHeaderView = plHeaderView.createHeaderView(getContext(),this);
+        if (mHeaderView != null) {
+            LayoutParams layoutParams = mHeaderView.getLayoutParams();
+            addView(mHeaderView,0,layoutParams);
+            measureChild(mHeaderView, widthMeasureSpec, heightMeasureSpec);
+            mHeaderHeight = mHeaderView.getMeasuredHeight();
+            mHeaderStartPosition = plHeaderView.getStartPosition(mHeaderHeight);
+            mDistanceToTriggerSync = plHeaderView.getDistanceToTriggerSync(mHeaderHeight);
+        } else {
+            isRefreshEnabled = false;
+        }
     }
 
     @Override
@@ -230,7 +233,7 @@ public class PLSwipeRefreshLayout extends ViewGroup {
         super.onAttachedToWindow();
         removeCallbacks(mCancel);
         removeCallbacks(mReturnToStartPosition);
-        removeCallbacks(mReturnToHeaderPosition);
+//        removeCallbacks(mReturnToHeaderPosition);
     }
 
     @Override
@@ -238,11 +241,14 @@ public class PLSwipeRefreshLayout extends ViewGroup {
         super.onDetachedFromWindow();
         removeCallbacks(mReturnToStartPosition);
         removeCallbacks(mCancel);
-        removeCallbacks(mReturnToHeaderPosition);
+//        removeCallbacks(mReturnToHeaderPosition);
     }
 
     private void animateOffsetToStartPosition(int from,
                                               AnimationListener listener) {
+        if (mTarget == null) {
+            return;
+        }
         mFrom = from;
         mAnimateToStartPosition.reset();
         mAnimateToStartPosition.setDuration(mMediumAnimationDuration);
@@ -251,15 +257,18 @@ public class PLSwipeRefreshLayout extends ViewGroup {
         mTarget.startAnimation(mAnimateToStartPosition);
     }
 
-    private void animateOffsetToHeaderPosition(int from,
-                                               AnimationListener listener) {
-        mFrom = from;
-        mAnimateToHeaderPosition.reset();
-        mAnimateToHeaderPosition.setDuration(mMediumAnimationDuration);
-        mAnimateToHeaderPosition.setAnimationListener(listener);
-        mAnimateToHeaderPosition.setInterpolator(mDecelerateInterpolator);
-        mTarget.startAnimation(mAnimateToHeaderPosition);
-    }
+//    private void animateOffsetToHeaderPosition(int from,
+//                                               AnimationListener listener) {
+//        if(mHeaderView == null){
+//            return;
+//        }
+//        mFrom = from;
+//        mAnimateToHeaderPosition.reset();
+//        mAnimateToHeaderPosition.setDuration(mMediumAnimationDuration);
+//        mAnimateToHeaderPosition.setAnimationListener(listener);
+//        mAnimateToHeaderPosition.setInterpolator(mDecelerateInterpolator);
+//        mHeaderView.startAnimation(mAnimateToHeaderPosition);
+//    }
 
     /**
      * Set the listener to be notified when a refresh is triggered via the swipe
@@ -270,10 +279,16 @@ public class PLSwipeRefreshLayout extends ViewGroup {
     }
 
     public void setRefreshEnabled(boolean refreshEnabled) {
+        if (mHeaderView == null) {
+            return;
+        }
         isRefreshEnabled = refreshEnabled;
     }
 
     public void setLoadEnabled(boolean loadEnabled) {
+        if (mFooterView == null) {
+            return;
+        }
         isLoadEnabled = loadEnabled;
     }
 
@@ -283,31 +298,30 @@ public class PLSwipeRefreshLayout extends ViewGroup {
      * @param refreshing Whether or not the view should show refresh progress.
      */
     public void setRefreshing(boolean refreshing) {
-        if (mRefreshing != refreshing) {
+        if (isRefreshing() != refreshing) {
             ensureTarget();
-            mRefreshing = refreshing;
+            setStatus(refreshing ? STATUS.REFRESHING : STATUS.NORMAL);
         }
-        if(mRefreshing){
-            mReturnToHeaderPosition.run();
-        }else {
+        if(isRefreshing()){
             mReturnToStartPosition.run();
         }
     }
 
     /**
      * 通知控件加载状态已更改。 当通过滑动手势触发加载时，不要调用此方法。
+     *
      * @param loading
      */
     public void setLoading(boolean loading) {
-        if (mLoading != loading) {
+        if (isLoading() != loading) {
             ensureTarget();
-            mLoading = loading;
+            setStatus(loading ? STATUS.LOADING : STATUS.NORMAL);
         }
-        if(mLoading){
-            mReturnToStartPosition.run();  //需要修改
-        }else {
-            mReturnToStartPosition.run();
-        }
+        mReturnToStartPosition.run();  //需要修改
+//        if(mLoading){
+//        }else {
+//            mReturnToStartPosition.run();
+//        }
     }
 
     /**
@@ -315,12 +329,24 @@ public class PLSwipeRefreshLayout extends ViewGroup {
      * progress.
      */
     public boolean isRefreshing() {
-        return mRefreshing;
+        return mStatus == STATUS.REFRESHING;
     }
 
     public boolean isLoading() {
-        return mLoading;
+        return mStatus == STATUS.LOADING;
     }
+
+
+    public void setPlHeaderView(PLHeaderView plHeaderView) {
+        if (plHeaderView == null) {
+            return;
+        }
+        this.plHeaderView = plHeaderView;
+//        createHeaderView();
+        requestLayout();
+        invalidate();
+    }
+
 
     /**
      * 确保内容控件存在，否则抛出异常
@@ -328,19 +354,34 @@ public class PLSwipeRefreshLayout extends ViewGroup {
     private void ensureTarget() {
         // Don't bother getting the parent height if the parent hasn't been laid out yet.
         if (mTarget == null) {
-            if (getChildCount() > 2 && !isInEditMode()) {
-                throw new IllegalStateException(
-                        "SwipeRefreshLayout can only host two children");
+            if (getChildCount() == 0) {
+                return;
             }
-            mTarget = getChildAt(1);
-
+            int maxChildCount = 1;
+            int targetIndex = 0;
+            if (mHeaderView != null) {
+                maxChildCount++;
+                targetIndex++;
+            }
+            if (mFooterView != null) {
+                maxChildCount++;
+            }
+            if (getChildCount() > maxChildCount && !isInEditMode()) {
+                throw new IllegalStateException(
+                        "SwipeRefreshLayout can only host one children");
+            }
+            View child = getChildAt(targetIndex);
+            if (child.equals(mFooterView)) {
+                return;
+            }
+            mTarget = child;
             // 控制是否允许滚动
-            mTarget.setOnTouchListener(new OnTouchListener() {
-                @Override
-                public boolean onTouch(View v, MotionEvent event) {
-                    return mDisable;
-                }
-            });
+//            mTarget.setOnTouchListener(new OnTouchListener() {
+//                @Override
+//                public boolean onTouch(View v, MotionEvent event) {
+//                    return mDisable;
+//                }
+//            });
 
             mOriginalOffsetTop = mTarget.getTop() + getPaddingTop();
         }
@@ -373,33 +414,36 @@ public class PLSwipeRefreshLayout extends ViewGroup {
                 + childHeight);
 
         //头部的位置，后面添加底部View时可以参考
-        mHeaderView.layout(childLeft, childTop - mHeaderHeight, childLeft
-                + childWidth, childTop);
+        if (mHeaderView != null) {
+            mHeaderView.layout(childLeft, childTop - mHeaderStartPosition, childLeft
+                    + childWidth, childTop - mHeaderStartPosition + mHeaderHeight);
+            plHeaderView.onLayout(changed, childLeft, childTop - mHeaderStartPosition, childLeft
+                    + childWidth, childTop - mHeaderStartPosition + mHeaderHeight);
+            bringChildToFront(mHeaderView);
+        }
     }
 
     @Override
     public void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-
-        if (getChildCount() <= 1) {
-            throw new IllegalStateException(
-                    "SwipeRefreshLayout must have the headerview and contentview");
+        if (mTarget == null) {
+            ensureTarget();
         }
-
-        if (getChildCount() > 2 && !isInEditMode()) {
-            throw new IllegalStateException(
-                    "SwipeRefreshLayout can only host two children");
+        if (mTarget == null) {
+            return;
         }
-
-        if (mHeaderView == null) {
-            mHeaderView = getChildAt(0);
-            measureChild(mHeaderView, widthMeasureSpec, heightMeasureSpec);
-            mHeaderHeight = mHeaderView.getMeasuredHeight();
-
-            mDistanceToTriggerSync = mHeaderHeight;
+        if(mHeaderView == null){
+            createHeaderView(widthMeasureSpec,heightMeasureSpec);
         }
-
-        getChildAt(1).measure(
+//        if (mHeaderView != null) {
+//            measureChild(mHeaderView, widthMeasureSpec, heightMeasureSpec);
+//            mHeaderHeight = mHeaderView.getMeasuredHeight();
+//            mHeaderStartPosition = plHeaderView.getStartPosition();
+//            mDistanceToTriggerSync = plHeaderView.getDistanceToTriggerSync();
+//        } else {
+//            isRefreshEnabled = false;
+//        }
+        mTarget.measure(
                 MeasureSpec.makeMeasureSpec(getMeasuredWidth()
                                 - getPaddingLeft() - getPaddingRight(),
                         MeasureSpec.EXACTLY),
@@ -411,7 +455,7 @@ public class PLSwipeRefreshLayout extends ViewGroup {
     /**
      * @return 内容控件是否可以向上滑动
      */
-    public boolean canChildScrollUp() {
+    private boolean canChildScrollUp() {
         if (android.os.Build.VERSION.SDK_INT < 14) {
             if (mTarget instanceof AbsListView) {
                 final AbsListView absListView = (AbsListView) mTarget;
@@ -429,9 +473,10 @@ public class PLSwipeRefreshLayout extends ViewGroup {
 
     /**
      * 内容控件是否可以向下滑动
+     *
      * @return
      */
-    public boolean canChildScrollDown() {
+    private boolean canChildScrollDown() {
         if (android.os.Build.VERSION.SDK_INT < 14) {
             if (mTarget instanceof AbsListView) {
                 final AbsListView absListView = (AbsListView) mTarget;
@@ -452,13 +497,18 @@ public class PLSwipeRefreshLayout extends ViewGroup {
 
     /**
      * 分发事件。只关心需要的事件。
+     *
      * @param ev
      * @return
      */
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
-        ensureTarget();  //再次确保内容控件存在
-
+        if (mTarget == null) {
+            ensureTarget();
+        }
+        if (mTarget == null) {
+            return false;
+        }
         final int action = MotionEventCompat.getActionMasked(ev);
 
         if (mReturningToStart && action == MotionEvent.ACTION_DOWN) {
@@ -499,7 +549,7 @@ public class PLSwipeRefreshLayout extends ViewGroup {
                     mLastMotionY = y;
                     mIsBeingDragged = true;
                     mIsBeingLoad = false;
-                }else if(-yDiff > mTouchSlop && !canChildScrollDown() && isLoadEnabled){ //如果是向上滑动并且可以上拉则准备上拉加载处理
+                } else if (-yDiff > mTouchSlop && !canChildScrollDown() && isLoadEnabled) { //如果是向上滑动并且可以上拉则准备上拉加载处理
                     mLastMotionY = y;
                     mIsBeingDragged = false;
                     mIsBeingLoad = true;
@@ -528,22 +578,20 @@ public class PLSwipeRefreshLayout extends ViewGroup {
 
     /**
      * 处理具体的上拉下拉效果（只有需要关心的事件才会调用此方法），部分代码跟上面的分发事件一样。可以参考上面的注释
+     *
      * @param ev
      * @return
      */
     @Override
     public boolean onTouchEvent(MotionEvent ev) {
         final int action = MotionEventCompat.getActionMasked(ev);
-
         if (mReturningToStart && action == MotionEvent.ACTION_DOWN) {
             mReturningToStart = false;
         }
-
         if (!isEnabled() || mReturningToStart || (canChildScrollUp() && canChildScrollDown()) || mStatus == STATUS.REFRESHING || mStatus == STATUS.LOADING) {
             // Fail fast if we're not in a state where a swipe is possible
             return false;
         }
-
         switch (action) {
             case MotionEvent.ACTION_DOWN:
                 mLastMotionY = mInitialMotionY = ev.getY();
@@ -566,10 +614,10 @@ public class PLSwipeRefreshLayout extends ViewGroup {
 
                 final float yDiff = y - mInitialMotionY;
 
-                if (!mIsBeingDragged && !mIsBeingLoad && yDiff > mTouchSlop &&  !canChildScrollUp() && isRefreshEnabled) {
+                if (!mIsBeingDragged && !mIsBeingLoad && yDiff > mTouchSlop && !canChildScrollUp() && isRefreshEnabled) {
                     mIsBeingDragged = true;
                     mIsBeingLoad = false;
-                }else if(!mIsBeingDragged && !mIsBeingLoad && -yDiff > mTouchSlop && !canChildScrollDown() && isLoadEnabled) {
+                } else if (!mIsBeingDragged && !mIsBeingLoad && -yDiff > mTouchSlop && !canChildScrollDown() && isLoadEnabled) {
                     mIsBeingDragged = false;
                     mIsBeingLoad = true;
                 }
@@ -578,8 +626,7 @@ public class PLSwipeRefreshLayout extends ViewGroup {
                     // User velocity passed min velocity; trigger a refresh
                     if (yDiff > mDistanceToTriggerSync) { //如果下拉距离大于临界值则进入松开下拉刷新状态
                         if (mStatus == STATUS.NORMAL) {
-                            mStatus = STATUS.LOOSENREFRESH;
-
+                            setStatus(STATUS.LOOSENREFRESH);
                             if (mListener != null) {
                                 mListener.onLoose();
                             }
@@ -587,7 +634,7 @@ public class PLSwipeRefreshLayout extends ViewGroup {
                         updateContentOffsetTop((int) (yDiff));  //更新内容控件的位置
                     } else {  //
                         if (mStatus == STATUS.LOOSENREFRESH) {  //用户手指又往回滑动时恢复默认状态
-                            mStatus = STATUS.NORMAL;
+                            setStatus(STATUS.NORMAL);
                             if (mListener != null) {
                                 mListener.onNormal();
                             }
@@ -603,12 +650,11 @@ public class PLSwipeRefreshLayout extends ViewGroup {
                         }
                     }
                     mLastMotionY = y;
-                }else if(mIsBeingLoad){   //上拉处理
+                } else if (mIsBeingLoad) {   //上拉处理
                     // User velocity passed min velocity; trigger a refresh
                     if (-yDiff > mDistanceToTriggerSync) {  //需要修改
                         if (mStatus == STATUS.NORMAL) {
-                            mStatus = STATUS.LOOSENLOAD;
-
+                            setStatus(STATUS.LOOSENLOAD);
                             if (mListener != null) {
                                 mListener.onLoose();
                             }
@@ -617,8 +663,7 @@ public class PLSwipeRefreshLayout extends ViewGroup {
                         updateContentOffsetTop((int) (yDiff));
                     } else {
                         if (mStatus == STATUS.LOOSENLOAD) {
-                            mStatus = STATUS.NORMAL;
-
+                            setStatus(STATUS.NORMAL);
                             if (mListener != null) {
                                 mListener.onNormal();
                             }
@@ -651,9 +696,9 @@ public class PLSwipeRefreshLayout extends ViewGroup {
             case MotionEvent.ACTION_UP:
                 if (mStatus == STATUS.LOOSENREFRESH) {
                     startRefresh();
-                } else if(mStatus == STATUS.LOOSENLOAD){
+                } else if (mStatus == STATUS.LOOSENLOAD) {
                     startLoad();
-                }else {
+                } else {
                     updatePositionTimeout();  //取消手势
                 }
 
@@ -695,22 +740,23 @@ public class PLSwipeRefreshLayout extends ViewGroup {
     public void stopRefresh() {
         setRefreshing(false);
     }
+
     public void stopLoad() {
         setLoading(false);
     }
 
     private void updateContentOffsetTop(int targetTop) {
         final int currentTop = mTarget.getTop();
-        if(mIsBeingDragged){
+        if (mIsBeingDragged) {
             if (targetTop > mDistanceToTriggerSync) {  // 超过触发刷新的临界值时取 临界值+超过临界值的一半
                 targetTop = (int) mDistanceToTriggerSync + (int) (targetTop - mDistanceToTriggerSync) / 2;
             } else if (targetTop < 0) {
                 targetTop = 0;
             }
-        }else {
+        } else {
             if (-targetTop > mDistanceToTriggerSync) {  //需要修改
                 targetTop = (int) -mDistanceToTriggerSync + (int) (targetTop + mDistanceToTriggerSync) / 2;
-            } else if (targetTop >0) {
+            } else if (targetTop > 0) {
                 targetTop = 0;
             }
         }
@@ -719,9 +765,14 @@ public class PLSwipeRefreshLayout extends ViewGroup {
 
     private void setTargetOffsetTopAndBottom(int offset) {
         mTarget.offsetTopAndBottom(offset);
-        mHeaderView.offsetTopAndBottom(offset);
         mCurrentTargetOffsetTop = mTarget.getTop();
+        plHeaderView.offsetChange(mCurrentTargetOffsetTop, mCurrentTargetOffsetTop - offset);
         invalidate();
+    }
+
+    private void setStatus(STATUS status) {
+        mStatus = status;
+        plHeaderView.statusChange(mStatus);
     }
 
     private void updatePositionTimeout() {  //取消手势
